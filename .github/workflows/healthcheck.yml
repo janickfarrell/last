@@ -51,6 +51,7 @@ jobs:
 
       - name: Run check
         env:
+          TELEGRAM_OPTIONAL: "1"
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           ADMIN_CHAT_ID: ${{ secrets.ADMIN_CHAT_ID }}
           SUBSCRIPTIONS_FILE: "subscriptions.txt"

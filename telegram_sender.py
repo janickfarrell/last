@@ -3,19 +3,39 @@ from __future__ import annotations
 import httpx
 
 
+def _telegram_url(token: str, method: str) -> str:
+    base = "https" + "://api.telegram.org"
+    return f"{base}/bot{token}/{method}"
+
+
 async def send_message(token: str, chat_id: int, text: str) -> None:
-    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    if not token or not chat_id:
+        return
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(url, data={"chat_id": str(chat_id), "text": text})
-        r.raise_for_status()
+        response = await client.post(
+            _telegram_url(token, "sendMessage"),
+            data={"chat_id": str(chat_id), "text": text},
+        )
+        response.raise_for_status()
 
 
-async def send_document(token: str, chat_id: int, filename: str, content: bytes, caption: str | None = None) -> None:
-    url = f"https://api.telegram.org/bot{token}/sendDocument"
+async def send_document(
+    token: str,
+    chat_id: int,
+    filename: str,
+    content: bytes,
+    caption: str | None = None,
+) -> None:
+    if not token or not chat_id:
+        return
     data = {"chat_id": str(chat_id)}
     if caption:
         data["caption"] = caption
     files = {"document": (filename, content)}
     async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(url, data=data, files=files)
-        r.raise_for_status()
+        response = await client.post(
+            _telegram_url(token, "sendDocument"),
+            data=data,
+            files=files,
+        )
+        response.raise_for_status()

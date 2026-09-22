@@ -23,17 +23,21 @@ class Settings:
     max_concurrency: int
 
 
-def load_settings() -> Settings:
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
-    if not token:
-        raise RuntimeError("TELEGRAM_BOT_TOKEN is required")
+def _enabled(name: str, default: str = "0") -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
 
+
+def load_settings() -> Settings:
+    telegram_optional = _enabled("TELEGRAM_OPTIONAL")
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     admin_chat_id_raw = os.environ.get("ADMIN_CHAT_ID", "").strip()
-    if not admin_chat_id_raw:
+
+    if not telegram_optional and not token:
+        raise RuntimeError("TELEGRAM_BOT_TOKEN is required")
+    if not telegram_optional and not admin_chat_id_raw:
         raise RuntimeError("ADMIN_CHAT_ID is required")
 
     refresh_hours = int(os.environ.get("REFRESH_HOURS", "4"))
-
     singbox_path = os.environ.get("SINGBOX_PATH", "sing-box")
     clash_api_host = os.environ.get("CLASH_API_HOST", "127.0.0.1")
     clash_api_port = int(os.environ.get("CLASH_API_PORT", "9090"))
@@ -50,7 +54,7 @@ def load_settings() -> Settings:
 
     return Settings(
         telegram_bot_token=token,
-        admin_chat_id=int(admin_chat_id_raw),
+        admin_chat_id=int(admin_chat_id_raw) if admin_chat_id_raw else 0,
         refresh_hours=refresh_hours,
         singbox_path=singbox_path,
         clash_api_host=clash_api_host,
