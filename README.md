@@ -24,15 +24,13 @@ export SINGBOX_PATH=/path/to/sing-box
 python run_once.py
 ```
 
-`subscriptions.txt` is one HTTP(S) subscription URL per line. Empty lines are ignored. Subscription responses are capped at 2 MiB to avoid unbounded memory use.
+`subscriptions.txt` contains one HTTP(S) subscription URL per line. Empty lines and lines beginning with `#` are ignored.
 
 ## GitHub Actions
 
 `.github/workflows/healthcheck.yml` runs manually or every two hours. It requires `TELEGRAM_BOT_TOKEN` and `ADMIN_CHAT_ID` repository secrets.
 
 The workflow writes generated files back to the repository. Those files can contain live proxy endpoints or credentials. Use a **private repository** or change the workflow to publish artifacts through a private destination before enabling it on public code. Rotate any endpoint or token that has already been exposed publicly.
-
-The workflow uses a pinned `sing-box` version, bounded network operations, concurrency control, and a conditional commit so it does not create a commit when outputs are unchanged.
 
 ## Telegram bot
 
