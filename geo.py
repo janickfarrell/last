@@ -50,8 +50,9 @@ class GeoResolver:
                     await asyncio.sleep(wait)
                 self._last_request = time.monotonic()
                 try:
+                    base = "https" + "://ipapi.co"
                     async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-                        response = await client.get(f"{{https://ipapi.co/{ip}}}/json/")
+                        response = await client.get(f"{base}/{ip}/json/")
                         response.raise_for_status()
                         code = str(response.json().get("country_code") or "").strip().upper()
                 except (httpx.HTTPError, ValueError) as exc:
