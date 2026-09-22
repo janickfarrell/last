@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 import httpx
 
+CHECK_HOST_BASE = "https" + "://check-host.net"
+
 
 @dataclass(frozen=True)
 class CheckHostNode:
@@ -27,7 +29,7 @@ class Endpoint:
 
 async def get_nodes(country_code: str) -> list[CheckHostNode]:
     async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get("https://check-host.net/nodes/hosts", headers={"Accept": "application/json"})
+        response = await client.get(f"{CHECK_HOST_BASE}/nodes/hosts", headers={"Accept": "application/json"})
         response.raise_for_status()
         data = response.json()
 
@@ -49,9 +51,9 @@ async def get_nodes(country_code: str) -> list[CheckHostNode]:
 
 
 async def _start_tcp_check(client: httpx.AsyncClient, endpoint: Endpoint, node_names: list[str]) -> str | None:
-    params: list[tuple[str, str]] = [("host", endpoint.hostport), *(('node', name) for name in node_names)]
+    params: list[tuple[str, str]] = [("host", endpoint.hostport), *(("node", name) for name in node_names)]
     try:
-        response = await client.get("https://check-host.net/check-tcp", headers={"Accept": "application/json"}, params=params)
+        response = await client.get(f"{CHECK_HOST_BASE}/check-tcp", headers={"Accept": "application/json"}, params=params)
         if response.status_code != 200:
             return None
         data = response.json()
@@ -72,7 +74,7 @@ async def _poll_result(client: httpx.AsyncClient, request_id: str, node_names: l
     deadline = asyncio.get_running_loop().time() + max(1, int(max_wait_seconds))
     while asyncio.get_running_loop().time() < deadline:
         try:
-            response = await client.get(f"{{https://check-host.net/check-result/{request_id}}}", headers={"Accept": "application/json"})
+            response = await client.get(f"{CHECK_HOST_BASE}/check-result/{request_id}", headers={"Accept": "application/json"})
             if response.status_code != 200:
                 await asyncio.sleep(0.5)
                 continue
