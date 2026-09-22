@@ -26,87 +26,75 @@ class Endpoint:
 
 
 async def get_nodes(country_code: str) -> list[CheckHostNode]:
-    headers = {"Accept": "application/json"}
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get("https://check-host.net/nodes/hosts", headers=headers)
-        r.raise_for_status()
-        data = r.json()
+        response = await client.get("https://check-host.net/nodes/hosts", headers={"Accept": "application/json"})
+        response.raise_for_status()
+        data = response.json()
 
     nodes = data.get("nodes") if isinstance(data, dict) else None
     if not isinstance(nodes, dict):
         return []
 
-    out: list[CheckHostNode] = []
+    result: list[CheckHostNode] = []
     for name, info in nodes.items():
         if not isinstance(info, dict):
             continue
-        loc = info.get("location")
-        if not isinstance(loc, list) or len(loc) < 3:
+        location = info.get("location")
+        if not isinstance(location, list) or len(location) < 3:
             continue
-        cc = str(loc[0]).lower()
-        if cc != country_code.lower():
+        if str(location[0]).lower() != country_code.lower():
             continue
-        out.append(CheckHostNode(name=name, country_code=cc, country=str(loc[1]), city=str(loc[2])))
+        result.append(CheckHostNode(name=str(name), country_code=str(location[0]).lower(), country=str(location[1]), city=str(location[2])))
+    return result
 
-    return out
 
-
-async def _start_tcp_check(endpoint: Endpoint, node_names: list[str]) -> str | None:
-    headers = {"Accept": "application/json"}
-    params: list[tuple[str, str]] = [("host", endpoint.hostport)]
-    for n in node_names:
-        params.append(("node", n))
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.get("https://check-host.net/check-tcp", headers=headers, params=params)
-        if r.status_code != 200:
+async def _start_tcp_check(client: httpx.AsyncClient, endpoint: Endpoint, node_names: list[str]) -> str | None:
+    params: list[tuple[str, str]] = [("host", endpoint.hostport), *(('node', name) for name in node_names)]
+    try:
+        response = await client.get("https://check-host.net/check-tcp", headers={"Accept": "application/json"}, params=params)
+        if response.status_code != 200:
             return None
-        data = r.json()
-
-    if not isinstance(data, dict) or data.get("ok") != 1:
+        data = response.json()
+    except (httpx.HTTPError, ValueError):
         return None
-    rid = data.get("request_id")
-    return str(rid) if rid else None
+    if not isinstance(data, dict) or data.get("ok") != 1 or not data.get("request_id"):
+        return None
+    return str(data["request_id"])
 
 
 def _is_success(item: object) -> bool:
-    return isinstance(item, dict) and ("time" in item) and ("error" not in item)
+    if not isinstance(item, dict) or "error" in item or "time" not in item:
+        return False
+    return isinstance(item.get("time"), (int, float))
 
 
-async def _poll_result(request_id: str, node_names: list[str], max_wait_seconds: int) -> bool:
-    headers = {"Accept": "application/json"}
-    deadline = asyncio.get_event_loop().time() + max_wait_seconds
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        while asyncio.get_event_loop().time() < deadline:
-            r = await client.get(f"https://check-host.net/check-result/{request_id}", headers=headers)
-            if r.status_code != 200:
+async def _poll_result(client: httpx.AsyncClient, request_id: str, node_names: list[str], max_wait_seconds: int) -> bool:
+    deadline = asyncio.get_running_loop().time() + max(1, int(max_wait_seconds))
+    while asyncio.get_running_loop().time() < deadline:
+        try:
+            response = await client.get(f"{{https://check-host.net/check-result/{request_id}}}", headers={"Accept": "application/json"})
+            if response.status_code != 200:
                 await asyncio.sleep(0.5)
                 continue
-
-            data = r.json()
-            if not isinstance(data, dict):
-                await asyncio.sleep(0.5)
-                continue
-
-            any_success = False
-            all_done = True
-            for node in node_names:
-                node_res = data.get(node)
-                if node_res is None:
-                    all_done = False
-                    continue
-                if isinstance(node_res, list) and any(_is_success(it) for it in node_res):
-                    any_success = True
-                    break
-
-            if any_success:
-                return True
-            if all_done:
-                return False
-
+            data = response.json()
+        except (httpx.HTTPError, ValueError):
             await asyncio.sleep(0.5)
+            continue
+        if not isinstance(data, dict):
+            await asyncio.sleep(0.5)
+            continue
 
+        all_done = True
+        for node in node_names:
+            node_result = data.get(node)
+            if node_result is None:
+                all_done = False
+                continue
+            if isinstance(node_result, list) and any(_is_success(item) for item in node_result):
+                return True
+        if all_done:
+            return False
+        await asyncio.sleep(0.5)
     return False
 
 
@@ -118,28 +106,20 @@ async def reachable_from_country_tcp(
     poll_wait_seconds: int = 15,
 ) -> list[Endpoint]:
     nodes = await get_nodes(country_code)
-    node_names = [n.name for n in nodes]
+    node_names = [node.name for node in nodes]
     if not node_names:
         return []
 
-    # به‌جای محدودکردن تعداد، تمام endpointها را در یک اجرا تست می‌کنیم
-    # (اگر در آینده خواستی دوباره limit بگذاری، می‌توانی این خط را برگردانی یا شرط اضافه کنی)
-    endpoints = list(endpoints)
+    selected = list(endpoints)[: max(0, int(max_endpoints))]
+    semaphore = asyncio.Semaphore(max(1, int(concurrency)))
+    reachable: list[Endpoint] = []
 
-    sem = asyncio.Semaphore(max(1, int(concurrency)))
-    ok: list[Endpoint] = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        async def check_one(endpoint: Endpoint) -> None:
+            async with semaphore:
+                request_id = await _start_tcp_check(client, endpoint, node_names)
+                if request_id and await _poll_result(client, request_id, node_names, poll_wait_seconds):
+                    reachable.append(endpoint)
 
-    async def one(ep: Endpoint) -> None:
-        async with sem:
-            rid = await _start_tcp_check(ep, node_names)
-            if not rid:
-                return
-            try:
-                success = await _poll_result(rid, node_names, poll_wait_seconds)
-            except Exception:
-                return
-            if success:
-                ok.append(ep)
-
-    await asyncio.gather(*(one(ep) for ep in endpoints))
-    return ok
+        await asyncio.gather(*(check_one(endpoint) for endpoint in selected))
+    return reachable
