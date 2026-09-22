@@ -181,7 +181,6 @@ def _decode_vmess(link: str) -> dict:
 def _parse_ss(link: str) -> tuple[str, int, str, str]:
     # Supports ss://BASE64(method:password)@host:port#name OR ss://method:password@host:port#name
     u = urllib.parse.urlsplit(link)
-    name = urllib.parse.unquote(u.fragment) if u.fragment else ""
     netloc = u.netloc
 
     if "@" in netloc:
@@ -195,7 +194,6 @@ def _parse_ss(link: str) -> tuple[str, int, str, str]:
             dec = base64.urlsafe_b64decode(userinfo.encode()).decode()
             method, password = dec.split(":", 1)
     else:
-        # ss://BASE64(method:password@host:port)
         raw = u.path.lstrip("/")
         missing = (-len(raw)) % 4
         if missing:
@@ -231,10 +229,7 @@ def node_from_share_link(link: str) -> Node:
         }
 
         if tls_enabled:
-            outbound["tls"] = {
-                "enabled": True,
-                "server_name": v.get("sni") or v.get("host") or server,
-            }
+            outbound["tls"] = {"enabled": True, "server_name": v.get("sni") or v.get("host") or server}
 
         if transport == "ws":
             outbound["transport"] = {
@@ -277,22 +272,17 @@ def node_from_share_link(link: str) -> Node:
             tls: dict = {"enabled": True}
             if sni:
                 tls["server_name"] = sni
-            if params.get("security", [""])[0].lower() == "reality":
-                if _is_valid_reality_public_key(pbk):
-                    tls["reality"] = {"enabled": True, "public_key": pbk}
-                    if sid:
-                        tls["reality"]["short_id"] = sid
-                    tls["utls"] = {"enabled": True, "fingerprint": fp or "chrome"}
+            if params.get("security", [""])[0].lower() == "reality" and _is_valid_reality_public_key(pbk):
+                tls["reality"] = {"enabled": True, "public_key": pbk}
+                if sid:
+                    tls["reality"]["short_id"] = sid
+                tls["utls"] = {"enabled": True, "fingerprint": fp or "chrome"}
             outbound["tls"] = tls
 
         if transport == "ws":
             path = params.get("path", ["/"])[0] or "/"
             host = params.get("host", [""])[0]
-            outbound["transport"] = {
-                "type": "ws",
-                "path": path,
-                "headers": {"Host": host} if host else {},
-            }
+            outbound["transport"] = {"type": "ws", "path": path, "headers": {"Host": host} if host else {}}
         elif transport == "grpc":
             service_name = params.get("serviceName", [""])[0]
             outbound["transport"] = {"type": "grpc"}
@@ -325,11 +315,7 @@ def node_from_share_link(link: str) -> Node:
         if transport == "ws":
             path = params.get("path", ["/"])[0] or "/"
             host = params.get("host", [""])[0]
-            outbound["transport"] = {
-                "type": "ws",
-                "path": path,
-                "headers": {"Host": host} if host else {},
-            }
+            outbound["transport"] = {"type": "ws", "path": path, "headers": {"Host": host} if host else {}}
 
         return Node(tag=tag, outbound=outbound, export_link=link, export_clash_proxy=None)
 
@@ -359,17 +345,11 @@ def node_from_clash_proxy(proxy: dict) -> Node | None:
     name = proxy.get("name") or ptype
     tag = _safe_tag(str(name))
 
-    # Convert common Clash proxy schema to sing-box outbounds
     if ptype in ("vmess", "vless", "trojan"):
         server = proxy.get("server")
         port = int(proxy.get("port"))
 
-        outbound: dict = {
-            "type": ptype,
-            "tag": tag,
-            "server": server,
-            "server_port": port,
-        }
+        outbound: dict = {"type": ptype, "tag": tag, "server": server, "server_port": port}
 
         if ptype == "vmess":
             outbound["uuid"] = proxy.get("uuid") or proxy.get("id")
